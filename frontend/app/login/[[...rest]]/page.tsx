@@ -1,16 +1,18 @@
-import { LoginForm } from "@/app/components/login-form"; 
+import { LoginForm } from "@/app/components/login-form";
+import { safeRedirectPath } from "@/lib/utils/safe-redirect";
 export default async function Page({
   searchParams,
 }: {
   searchParams: Promise<{ from?: string }>;
 }){ 
     const { from } = await searchParams;
+    const safeFrom = safeRedirectPath(from);
     return(
         <div className="min-h-svh w-full bg-background lg:grid lg:grid-cols-2">
   {/* Left — Login */}
   <div className="flex min-h-svh items-center justify-center px-6 py-12 md:px-10">
     <div className="w-full max-w-sm">
-      <LoginForm from={from} />
+      <LoginForm from={safeFrom} />
     </div>
   </div>
 

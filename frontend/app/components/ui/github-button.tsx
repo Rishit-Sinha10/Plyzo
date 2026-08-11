@@ -1,10 +1,10 @@
 "use client";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
-import { authErrorMessage, useAuth } from "@/lib/auth";
+import { createClient } from "@/lib/utils/client";
+import { safeRedirectPath } from "@/lib/utils/safe-redirect";
+import { useAuth } from "@/lib/auth";
 function Github({ className }: { className?: string }){
     return(
         <svg
@@ -24,18 +24,19 @@ export function GithubSignInButton({
   redirectTo?: string;
   className?: string;
 }) {
-  const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const handleSignIn = async () => {
-    if (busy) return;
+  const supabase = createClient();
+  const safeRedirect = safeRedirectPath(redirectTo, "/dashboard");
+
+  const signInWithProvider = async (provider: "google" | "github") => {
     setBusy(true);
     try {
-      await useAuth().login();
-      toast.success("Signed in successfully.");
-      router.replace(redirectTo && redirectTo.startsWith("/") ? redirectTo : "/feed");
-      router.refresh();
-    } catch (err) {
-      toast.error(authErrorMessage(err));
+      await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(safeRedirect)}`,
+        },
+      });
     } finally {
       setBusy(false);
     }
@@ -49,7 +50,7 @@ export function GithubSignInButton({
       disabled={busy}
       aria-busy={busy}
       aria-label="Continue with Github"
-      onClick={() => void handleSignIn()}
+      onClick={() => signInWithProvider("github")}
     >
       {busy ? (
         <Loader2 className="size-4 animate-spin" aria-hidden />

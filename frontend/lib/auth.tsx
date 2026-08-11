@@ -1,61 +1,59 @@
 "use client";
-import React, { createContext, useContext, useMemo, useState } from "react";
-export type AppUser = {
-  name: string;
-  email: string;
-  role?: "admin" | "member";
-};
-type AuthContextValue = {
-  currentUser: AppUser | null;
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
+import type { User } from "@supabase/supabase-js";
+import { createClient } from "@/lib/utils/client";
+type AuthContextType = {
+  currentUser: User | null;
   loading: boolean;
-  login: () => Promise<void>;
   logout: () => Promise<void>;
 };
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
-  const [loading, setLoading] = useState(false);
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      currentUser,
-      loading,
-      login: async () => {
-        setLoading(true);
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        setCurrentUser({
-          name: "Plyzo Member",
-          email: "member@plyzo.app",
-          role: "member",
-        });
-        setLoading(false);
-      },
-      logout: async () => {
-        setLoading(true);
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        setCurrentUser(null);
-        setLoading(false);
-      },
-    }),
-    [currentUser, loading]
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data }) => {
+      setCurrentUser(data.session?.user ?? null);
+      setLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user ?? null);
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+  const logout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setCurrentUser(null);
+  };
+  return (
+    <AuthContext.Provider
+      value={{
+        currentUser,
+        loading,
+        logout,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
   );
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
-    return {
-      currentUser: null,
-      loading: false,
-      login: async () => {},
-      logout: async () => {},
-    } satisfies AuthContextValue;
+    throw new Error("useAuth must be used inside AuthProvider");
   }
-
   return context;
-}
-export function authErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Authentication failed";
 }
