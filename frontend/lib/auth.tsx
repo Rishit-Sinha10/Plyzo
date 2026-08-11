@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/utils/client";
+import { usePathname, useRouter } from "next/navigation";
 type AuthContextType = {
   currentUser: User | null;
   loading: boolean;
@@ -17,6 +18,16 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const isLoginPage = pathname === "/login" || pathname.startsWith("/login/");
+
+  useEffect(() => {
+    if (currentUser && isLoginPage) {
+      router.replace("/dashboard");
+    }
+  }, [currentUser, isLoginPage, router]);
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getSession().then(({ data }) => {

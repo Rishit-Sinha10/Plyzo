@@ -22,7 +22,6 @@ export async function createClient() {
         },
       },
       cookieOptions: {
-        httpOnly: true,
         sameSite: "lax",
         secure: process.env.NODE_ENV === "production",
       },

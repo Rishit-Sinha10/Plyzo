@@ -1,5 +1,7 @@
 import { LoginForm } from "@/app/components/login-form";
 import { safeRedirectPath } from "@/lib/utils/safe-redirect";
+import { createClient } from "@/lib/utils/server";
+import { redirect } from "next/navigation";
 export default async function Page({
   searchParams,
 }: {
@@ -7,6 +9,16 @@ export default async function Page({
 }){ 
     const { from } = await searchParams;
     const safeFrom = safeRedirectPath(from);
+
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      redirect(safeFrom);
+    }
+
     return(
         <div className="min-h-svh w-full bg-background lg:grid lg:grid-cols-2">
   {/* Left — Login */}

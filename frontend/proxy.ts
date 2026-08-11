@@ -23,7 +23,6 @@ export async function proxy(request: NextRequest) {
         },
       },
       cookieOptions: {
-        httpOnly: true,
         sameSite: "lax",
         secure: process.env.NODE_ENV === "production",
       },

@@ -4,7 +4,6 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 import { createClient } from "@/lib/utils/client";
 import { safeRedirectPath } from "@/lib/utils/safe-redirect";
-import { useAuth } from "@/lib/auth";
 function Github({ className }: { className?: string }){
     return(
         <svg
