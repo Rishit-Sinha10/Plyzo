@@ -1,0 +1,179 @@
+Here’s the production review against the exact checks you asked for, based on the current repo contents.
+## Executive summary
+I found a real redirect validation gap and a missing protected-route enforcement layer.
+- Critical: The OAuth redirect pipeline can accept an unsafe `next`/`from` value and then redirect to an external protocol-relative URL.
+- Critical: There is no actual top-level Next.js middleware matcher or server-side protection around the dashboard route. The dashboard page is currently a plain static page.
+- Warning: I cannot verify RLS policy configuration because the repo contains no SQL migration/schema file showing `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` or `CREATE POLICY` definitions.
+- Warning: I cannot confirm Supabase Redirect URL allowlisting, cookie settings, or Supabase dashboard security settings from code alone. Those are dashboard-side configuration concerns.
+- Note: I found no service-role key usage in the repo and no evidence of a committed secret history. The service-role key is not exposed.
+---
+## Findings by checklist
+### 1) Open redirect vulnerabilities — Critical
+The current redirect chain is not strict enough:
+- In the login UI, login-form.tsx passes the `from` query param into the provider buttons.
+- In google-button.tsx and github-button.tsx, `redirectTo` is accepted from the caller and then used to derive `next` through:
+  - `redirectTo && redirectTo.startsWith("/")`
+  - `redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(safeRedirect)}``
+The bug is that `startsWith("/")` is not sufficient. A value like `//evil.com` also starts with `/`, and the callback route later treats that as redirectable. The callback route is [frontend/app/auth/callback/route.ts](frontend/app/auth/callback/route.ts#L4-L16):
+- It reads `next` from the query string.
+- It defaults to `/dashboard` if nothing is supplied.
+- It redirects with:
+  - `NextResponse.redirect(`${origin}${next.startsWith("/") ? next : `/${next}`}`)`
+That is unsafe because `//evil.com` becomes a protocol-relative external redirect target. The `next` parameter is not canonicalized and not validated against a strict allowlist.
+What to fix before production:
+- Keep a server-side validation function that accepts only a relative path inside the same origin.
+- Reject:
+  - any value not starting with `/`
+  - any value starting with `//`
+  - any absolute URL such as `http://` or `https://`
+  - any path not on an approved internal allowlist if you want to be strict.
+- In practice, enforce a helper like:
+  - `if (!next || !next.startsWith("/") || next.startsWith("//")) { next = "/dashboard"; }`
+  - additionally validate with `new URL(next, origin)` and ensure the host is the same origin.
+---
+### 2) Service role key exposure — Note
+I did a repo-wide search for `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY`, and `NEXT_PUBLIC_` keys.
+Evidence:
+- Search output shows the only live Supabase env references are `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in client.ts and server.ts.
+- I did not find a `SUPABASE_SERVICE_ROLE_KEY` reference, and I did not find a service-role key being prefixed with `NEXT_PUBLIC_`.
+Current status:
+- No service-role exposure in this repo.
+- It is only used in server-only contexts if you add it later; do not put it in `NEXT_PUBLIC_*` envs.
+What to fix:
+- Keep the service role key out of the browser and out of any frontend code.
+- If you later add server actions or API routes, reference it only in a server-only file and keep it in the runtime environment, not the public namespace.
+---
+### 3) RLS coverage — Critical / Warning
+I cannot prove that RLS is enabled on the Supabase tables because there is no SQL migration/schema file in the repo that creates or secures the database.
+What I found:
+- No SQL files or migrations exist that show:
+  - `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`
+  - `CREATE POLICY ...`
+  - table definitions with `user_id`/`auth.uid()` checks.
+Because the repo never shows those database-level policies, this is not a verified secure implementation. The frontend can only be as safe as the database layer, and that layer is not defined here.
+What to fix before production:
+- Add a migration file or Supabase SQL file that defines:
+  1. each table to store user-owned data
+  2. `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`
+  3. a policy like:
+     - `auth.uid() = user_id`
+     - or the equivalent ownership logic
+- Do not rely on client-side filtering as the authorization boundary.
+- Any protected API or page should ask the server to read only rows the current authenticated user is allowed to access.
+---
+### 4) Session / middleware coverage — Critical
+This is not covered in the repo.
+What I found:
+- auth.tsx defines `AuthProvider` and only hydrates the user from `supabase.auth.getSession()`. That is not a server trust check.
+- It updates user state on auth change, but it does not call `supabase.auth.getUser()` on protected routes.
+- The file middleware.ts contains a `updateSession` helper that refreshes the Supabase session through `getUser()`, but that helper is not connected to a Next.js middleware route.
+- There is no top-level middleware file in the repo root that matches `/(dashboard|feed|account|admin|...)` and redirects unauthenticated users away.
+- The dashboard page at [frontend/app/dashboard/[[...rest]]/page.tsx](frontend/app/dashboard/[[...rest]]/page.tsx#L1-L3) is just a static render and is not protected by a server guard.
+What to fix before production:
+- Create a real root-level Next.js middleware that runs on protected routes:
+  - `matcher: ["/dashboard/:path*", "/account/:path*", "/admin/:path*"]` or equivalent
+- In that middleware, call `supabase.auth.getUser()` and redirect any unauthenticated request to `/login`.
+- Add server-side protection to page routes or route handlers that call `getUser()` before reading the request or rendering data.
+- Keep `getSession()` only as a session-read convenience. It can be stale. Server trust must use `getUser()`.
+---
+### 5) Callback route validation — Warning / Critical
+The callback route is route.ts.
+Current behavior:
+- It reads `code` from the query string.
+- If `code` exists, it calls `await supabase.auth.exchangeCodeForSession(code)`.
+- On success, it redirects to the `next` path, or to `/dashboard` by default.
+- On failure, it redirects to `/auth/error`.
+That is acceptable for the happy-path/invalid-code error path. However, the string `next` is not properly validated. The callback route is one of the vulnerable surfaces.
+What to fix before production:
+- Keep the `code` check as is, but make the fallback safe.
+- Validate `next` before redirect.
+- If `exchangeCodeForSession` fails, redirect to a fixed error page and do not pass a dynamic `next` target.
+---
+### 6) Environment variables and secret exposure — Note
+The repo’s ignore policy is present in .gitignore:
+- It ignores `.env*`, and Git status shows no tracked .env file.
+- The environment variables are not committed as tracked files.
+- I also checked git history for service-role and public Supabase keys and found no commit content matching them.
+Current status:
+- No evidence of committed secrets in git history.
+- The local .env file is not tracked.
+What to fix before production:
+- Keep `.env.local` and `.env.production` out of git.
+- Add a deployment-time env injection process. Do not commit a .env file.
+- Rotate any keys if they were ever previously exposed outside of this repo.
+---
+### 7) CORS / redirect allowlist — Warning
+I cannot confirm Supabase dashboard settings from code alone.
+What I found in the client code:
+- The OAuth sign-in buttons call `window.location.origin` and therefore build a callback origin from the deployed app host:
+  - google-button.tsx
+  - github-button.tsx
+This implies the expected callback origin is your live domain and not a wildcard.
+But I cannot see your Supabase dashboard configuration:
+- redirect URLs
+- allowed origins
+- wildcard redirect URL patterns
+- allowed CORS URLs
+What to fix before production:
+- In Supabase Dashboard → Authentication → URL Configuration, confirm the redirect URL allowlist contains only your actual production domain(s), for example:
+  - `https://yourdomain.com/auth/callback`
+  - `http://localhost:3000/auth/callback` for dev only
+- Do not allow a broad wildcard like `https://*` or a non-specific host pattern.
+---
+### 8) Rate limiting — Warning
+I do not find any rate-limit or brute-force protection in the frontend.
+What I found:
+- OAuth is initiated directly from the browser using `supabase.auth.signInWithOAuth()` in the provider buttons.
+- No custom throttling, CAPTCHA, token bucket, or request-limit logic exists.
+- There is no email/password sign-in implementation here, so credential-stuffing protection for password auth is not relevant in this repo.
+- Supabase itself provides some provider-level protection, but that is a dashboard-side feature.
+What to fix before production:
+- If you add email/password auth, add queueing/throttling, lockout checks, or an abuse detection layer before calling Supabase.
+- For OAuth, stack a provider-specific throttle / session challenge to constrain repeated login attempts from the same IP or user.
+---
+### 9) Cookie settings — Warning
+I do not see explicit cookie options in the repo that set:
+- `httpOnly`
+- `secure`
+- `sameSite`
+The Supabase SSR client is wired in:
+- server.ts
+- client.ts
+- middleware.ts
+Those files use `@supabase/ssr` to manage cookies through `cookies()` or `createServerClient()`. That is the correct Supabase SSR integration pattern, but it does not prove the cookie flags are configured in the app code.
+What to fix before production:
+- Confirm in Supabase Dashboard/Auth settings that the cookie/session configuration is using secure cookies in production.
+- Ensure cookies are delivered only over HTTPS and the session cookie is compatible with your auth flow.
+- Keep `sameSite` at a safe policy such as `lax` or `strict` depending on the flow you support.
+---
+### 10) Sign-out flow — Warning
+The sign-out entry point is in auth.tsx:
+- `logout()` calls `await supabase.auth.signOut()`
+- Then it clears `currentUser` from React state
+The UI sign-out entry point is in Nav.tsx and the navigation buttons call `logout()` before redirecting to `/`.
+Current status:
+- The browser-side session is cleared through `signOut()`.
+- The state is reset in React.
+- There is no server-side redirect guard to immediately deny a user access to a protected page after sign-out.
+What to fix before production:
+- Add a route guard for protected pages that uses `getUser()` on the server and redirects to `/login` if the session is missing or invalid.
+- After `signOut()`, call a server-side reset if you use route handlers or route protection that might still trust server cookies.
+- Protect the dashboard and any account/admin route from direct render and API access.
+---
+## Priority action list before publishing
+1. Fix the open redirect in the callback and provider redirect path.
+   - Implement safe `next` validation and block `//evil.com` style targets.
+   - Allow only path-only internal URLs.
+2. Add a true server-side protected-route guard.
+   - Create a Next.js middleware or server-side page-level guard that uses `supabase.auth.getUser()` on `/dashboard`, `/account`, and admin-like routes.
+   - Stop relying on `getSession()` for authorization.
+3. Add database security definitions.
+   - Write SQL migrations that enable RLS and define user ownership policies using `auth.uid()` checks.
+4. Verify Supabase dashboard settings.
+   - Redirect URLs
+   - CORS
+   - cookie/session config
+   - Auth provider configuration
+5. Keep secrets out of the repo.
+   - Keep the service-role key out of the browser and out of `NEXT_PUBLIC_` environment names.
+If you want, I can turn this review into an implementation checklist and patch the redirect validation and route-protection files directly.

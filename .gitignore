@@ -1,0 +1,3 @@
+supabase/
+# Local migration/schema artifacts should stay out of Git
+migration
