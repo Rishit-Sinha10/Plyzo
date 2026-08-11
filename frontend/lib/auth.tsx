@@ -46,8 +46,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
   const logout = async () => {
     const supabase = createClient();
-    await supabase.auth.signOut();
-    setCurrentUser(null);
+    try {
+      const { error } = await supabase.auth.signOut({ scope: "global" });
+      if (error) {
+        console.error("Logout failed", error);
+      }
+    } catch (error) {
+      console.error("Logout failed", error);
+    } finally {
+      setCurrentUser(null);
+    }
   };
   return (
     <AuthContext.Provider

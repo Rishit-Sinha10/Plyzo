@@ -28,15 +28,26 @@ export function GithubSignInButton({
   const safeRedirect = safeRedirectPath(redirectTo, "/dashboard");
 
   const signInWithProvider = async (provider: "google" | "github") => {
+    if (busy) {
+      return;
+    }
+
     setBusy(true);
+
     try {
-      await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
           redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(safeRedirect)}`,
         },
       });
-    } finally {
+
+      if (error) {
+        console.error(`Could not start ${provider} OAuth flow`, error);
+        setBusy(false);
+      }
+    } catch (error) {
+      console.error(`Could not start ${provider} OAuth flow`, error);
       setBusy(false);
     }
   };
