@@ -11,7 +11,7 @@ import logo from "@/public/image.png";
 const homeLinks = [
   { label: "Features", href: "#features" },
   { label: "How it works", href: "#how" },
-  { label: "Gallery", href: "#gallery" },
+  { label: "Faq", href: "#gallery" },
 ];
 const appLinks = [{ label: "Feed", href: "/feed" }];
 export default function Nav() {
