@@ -8,7 +8,6 @@ import {
 } from "@/app/components/ui/card";
 import { GoogleSignInButton } from "@/app/components/ui/google-button";
 import { GithubSignInButton } from "./ui/github-button";
-import { FormField, Textarea } from "./ui/textarea";
 export function LoginForm({
   from,
   className,
@@ -29,7 +28,6 @@ export function LoginForm({
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
-          <FormField ></FormField>
           <GoogleSignInButton redirectTo={from} className="w-full" />
           <GithubSignInButton redirectTo={from} className="w-full"/>
           <p className="text-center text-xs text-muted-foreground">
