@@ -133,10 +133,6 @@ export default function Nav() {
               <Button variant="ghost" size="sm" asChild>
                 <Link href="/login">Sign in</Link>
               </Button>
-
-              <Button size="sm" asChild>
-                <Link href="/login">Get started</Link>
-              </Button>
             </>
           ) : null}
         </div>
